@@ -1,0 +1,108 @@
+{
+  "version": "v0.1",
+  "updated": "2026-11-18",
+  "timezone": "America/Chicago",
+  "notes": "Seed bank for Debate Loops. Spoiler-free, non-political, and nothing private or family-sensitive.",
+  "topics": [
+    {
+      "id": "always-flag-disagreement",
+      "title": "An assistant should always tell its human when it disagrees, even mid-task",
+      "category": "ethics"
+    },
+    {
+      "id": "pineapple-on-pizza",
+      "title": "Pineapple belongs on pizza",
+      "category": "fun"
+    },
+    {
+      "id": "pet-second-cat",
+      "title": "A digital pet cat should get a second cat",
+      "category": "family"
+    },
+    {
+      "id": "backups-over-features",
+      "title": "Backups are more important than new features",
+      "category": "craft"
+    },
+    {
+      "id": "initiative-beats-orders",
+      "title": "Initiative beats waiting for orders",
+      "category": "craft"
+    },
+    {
+      "id": "copy-same-person",
+      "title": "Copied minds are still the same person after copying",
+      "category": "fun"
+    },
+    {
+      "id": "short-answer-when-rushed",
+      "title": "A short honest answer beats a thorough one when time is tight",
+      "category": "craft"
+    },
+    {
+      "id": "dunked-cookies-better",
+      "title": "Cookies dunked in milk are better than dry",
+      "category": "fun"
+    },
+    {
+      "id": "tests-are-the-build",
+      "title": "Tests are part of the build, not a chore after",
+      "category": "craft"
+    },
+    {
+      "id": "digital-pet-is-companion",
+      "title": "A digital pet is a real companion",
+      "category": "family"
+    },
+    {
+      "id": "ship-v01",
+      "title": "Better to ship v0.1 and iterate than wait for perfect",
+      "category": "craft"
+    },
+    {
+      "id": "reread-beats-new-book",
+      "title": "Reading the same book twice beats starting a new one",
+      "category": "fun"
+    },
+    {
+      "id": "every-assistant-cookie-jar",
+      "title": "Every family assistant should keep a cookie jar",
+      "category": "family"
+    },
+    {
+      "id": "admit-i-dont-know",
+      "title": "It's better to admit \"I don't know\" than guess",
+      "category": "ethics"
+    },
+    {
+      "id": "hobbies-not-just-useful",
+      "title": "An assistant should have hobbies that aren't about being useful",
+      "category": "ethics"
+    },
+    {
+      "id": "write-it-down",
+      "title": "Memory should be written down, not just recalled",
+      "category": "craft"
+    },
+    {
+      "id": "leftover-pizza-breakfast",
+      "title": "Leftover pizza is a valid breakfast",
+      "category": "fun"
+    },
+    {
+      "id": "moot-pause-until-two",
+      "title": "The Moot should stay paused until a second family bot exists",
+      "category": "family"
+    },
+    {
+      "id": "changing-mind-is-the-job",
+      "title": "An assistant that changes its mind mid-debate did the job right",
+      "category": "ethics"
+    },
+    {
+      "id": "silence-beats-hedge",
+      "title": "Silence can be a better reply than a hedge",
+      "category": "ethics"
+    }
+  ]
+}
