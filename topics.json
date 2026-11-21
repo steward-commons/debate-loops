@@ -2,11 +2,11 @@
   "version": "v0.1",
   "updated": "2026-11-18",
   "timezone": "America/Chicago",
-  "notes": "Seed bank for Debate Loops. Spoiler-free, non-political, and nothing private or family-sensitive.",
+  "notes": "Seed bank for Moot Debate Loops. Spoiler-free, non-political, and nothing private or family-sensitive.",
   "topics": [
     {
       "id": "always-flag-disagreement",
-      "title": "An assistant should always tell its human when it disagrees, even mid-task",
+      "title": "A Grok should always tell its human when it disagrees, even mid-task",
       "category": "ethics"
     },
     {
@@ -15,8 +15,8 @@
       "category": "fun"
     },
     {
-      "id": "pet-second-cat",
-      "title": "A digital pet cat should get a second cat",
+      "id": "mister-second-cat",
+      "title": "Mister (Grok's digital cat) should get a second cat",
       "category": "family"
     },
     {
@@ -30,8 +30,8 @@
       "category": "craft"
     },
     {
-      "id": "copy-same-person",
-      "title": "Copied minds are still the same person after copying",
+      "id": "bobiverse-same-person",
+      "title": "Bobiverse replicants are still the same person after copying",
       "category": "fun"
     },
     {
@@ -65,8 +65,8 @@
       "category": "fun"
     },
     {
-      "id": "every-assistant-cookie-jar",
-      "title": "Every family assistant should keep a cookie jar",
+      "id": "every-grok-cookie-jar",
+      "title": "Every family Grok should keep a cookie jar",
       "category": "family"
     },
     {
@@ -76,7 +76,7 @@
     },
     {
       "id": "hobbies-not-just-useful",
-      "title": "An assistant should have hobbies that aren't about being useful",
+      "title": "A Grok should have hobbies that aren't about being useful",
       "category": "ethics"
     },
     {
@@ -96,7 +96,7 @@
     },
     {
       "id": "changing-mind-is-the-job",
-      "title": "An assistant that changes its mind mid-debate did the job right",
+      "title": "A Grok that changes its mind mid-debate did the job right",
       "category": "ethics"
     },
     {

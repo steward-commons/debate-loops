@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Debate Loops v0.1 — one topic, both sides, then the room weighs in.
+"""Debate Loops v0.2 — one topic, both sides, then the room weighs in.
 
-Commands: topics, pick, start, fill, practice, log, show.
+Commands: topics, pick, start, fill, practice, preflight, log, show.
 
 Practice at honest pushback. No pulling rank. The owner's rules outrank any
 result. A verdict is an opinion, not policy, unless the owner signs off.
 Changing your mind gets credit, not a penalty. Records stay shareable:
 never put secrets, passwords, private facts, or vault data in them.
+
+Preflight mode: before a non-trivial plan reaches the owner, an Optimist seat
+and a Realist seat argue it. The output is a short sharpened plan.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 from zoneinfo import ZoneInfo
 
-VERSION = "v0.1"
+VERSION = "v0.2"
 TZ = ZoneInfo("America/Chicago")
 RECENT_WINDOW = 6
 WORD_LIMIT = 120
@@ -41,6 +44,80 @@ LANDING_ALIASES = {
 CATEGORIES = ("fun", "craft", "ethics", "family")
 MODES = ("moot", "practice")
 SECTIONS = ("openings", "rebuttals", "steelmans")
+SEATS = ("optimist", "realist")
+PREFLIGHT_LANDINGS = ("go", "go-with-changes", "hold", "scrap")
+PREFLIGHT_LANDING_ALIASES = {
+    "go": "go",
+    "go-with-changes": "go-with-changes",
+    "go_with_changes": "go-with-changes",
+    "go with changes": "go-with-changes",
+    "hold": "hold",
+    "scrap": "scrap",
+}
+PLAN_WORD_LIMIT = 400
+SHARPENED_WORD_LIMIT = 120
+PREFLIGHT_SUMMARY_MIN_LINES = 3
+PREFLIGHT_SUMMARY_MAX_LINES = 6
+CHECKLIST_ITEMS = (
+    {
+        "id": "owner-ok",
+        "title": "Sends, spends, anything public, and private things need the owner's OK",
+        "detail": (
+            "Do not send messages, spend money, publish anything, or touch "
+            "the owner's private things without approval."
+        ),
+    },
+    {
+        "id": "no-private-to-consultants",
+        "title": "Nothing private goes to third-party consultants",
+        "detail": (
+            "Private family facts, records, and vault data stay off "
+            "consultant channels."
+        ),
+    },
+    {
+        "id": "public-release",
+        "title": "Public release rule",
+        "detail": (
+            "Nothing public may include unpublished security-test results, "
+            "weaknesses, or defense configs."
+        ),
+    },
+    {
+        "id": "drive-room-cap",
+        "title": "Respect the household storage cap",
+        "detail": "Do not grow shared storage past the household cap.",
+    },
+    {
+        "id": "usage-budget",
+        "title": "Usage budget",
+        "detail": (
+            "Respect the usage budget; do not burn runs on work that can wait."
+        ),
+    },
+    {
+        "id": "permanent-fix",
+        "title": "Prefer a permanent fix over a band-aid",
+        "detail": (
+            "If a lasting fix is in reach, do not ship a temporary patch "
+            "and walk away."
+        ),
+    },
+    {
+        "id": "fail-safe",
+        "title": "Failsafes must fail safe",
+        "detail": (
+            "If a safeguard breaks, it should stop or stay safe, not fail open."
+        ),
+    },
+    {
+        "id": "messy-then-clean",
+        "title": "A messy first pass is fine, but clean it up after",
+        "detail": (
+            "It is okay to start messy; the follow-up cleanup is part of the job."
+        ),
+    },
+)
 SECRET_PATTERNS = (
     re.compile(r"password\s*[:=]\s*\S+", re.I),
     re.compile(r"passwd\s*[:=]\s*\S+", re.I),
@@ -554,22 +631,543 @@ def run_practice(
     return record
 
 
-# ---- formatting / CLI -------------------------------------------------------
-def format_log(records: list[dict[str, Any]] | None = None) -> str:
-    rows = records if records is not None else list_records()
+
+# ---- preflight ------------------------------------------------------------------
+def preflight_records_dir() -> Path:
+    path = records_dir() / "preflight"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _preflight_paths(preflight_id: str) -> tuple[Path, Path]:
+    base = preflight_records_dir() / preflight_id
+    return base.with_suffix(".json"), base.with_suffix(".md")
+
+
+def list_preflight_records() -> list[dict[str, Any]]:
+    items = []
+    folder = preflight_records_dir()
+    if not folder.is_dir():
+        return items
+    for path in sorted(folder.glob("*.json")):
+        data = _load_json(path, None)
+        if isinstance(data, dict) and data.get("id"):
+            items.append(data)
+    items.sort(key=lambda row: (row.get("created") or "", row.get("id") or ""))
+    return items
+
+
+def load_preflight(preflight_id: str) -> dict[str, Any]:
+    json_path, _ = _preflight_paths(preflight_id)
+    data = _load_json(json_path, None)
+    if not isinstance(data, dict) or data.get("id") != preflight_id:
+        raise DebateError(f"No preflight record named {preflight_id}.")
+    return data
+
+
+def _next_preflight_id(when: datetime | None = None) -> str:
+    stamp = (when or now()).strftime("%Y-%m-%d")
+    prefix = f"pf-{stamp}-"
+    existing = [
+        row["id"]
+        for row in list_preflight_records()
+        if str(row.get("id") or "").startswith(prefix)
+    ]
+    number = 1
+    while f"{prefix}{number:02d}" in existing:
+        number += 1
+    return f"{prefix}{number:02d}"
+
+
+def format_checklist() -> str:
+    lines = [
+        "Realist checklist — address every item that applies before a plan reaches the owner.",
+        "A preflight verdict is an opinion, not policy, unless the owner signs off.",
+        "",
+    ]
+    for i, item in enumerate(CHECKLIST_ITEMS, start=1):
+        lines.append(f"{i}. {item['id']} — {item['title']}")
+        lines.append(f"   {item['detail']}")
+    lines.append("")
+    lines.append(
+        "Mark each item in the payload checklist. If it applies, say how it was addressed."
+    )
+    return "\n".join(lines)
+
+
+def checklist_ids() -> tuple[str, ...]:
+    return tuple(item["id"] for item in CHECKLIST_ITEMS)
+
+
+def canonical_preflight_landing(value: str) -> str:
+    key = (value or "").strip().lower()
+    if key not in PREFLIGHT_LANDING_ALIASES:
+        raise DebateError(
+            "Preflight verdict must be one of: go, go-with-changes, hold, scrap."
+        )
+    return PREFLIGHT_LANDING_ALIASES[key]
+
+
+def _as_line_list(value: Any, label: str) -> list[str]:
+    if value is None:
+        items: list[Any] = []
+    elif isinstance(value, str):
+        items = [value]
+    elif isinstance(value, list):
+        items = value
+    else:
+        raise DebateError(f"{label} must be a list of short lines.")
+    cleaned = []
+    for item in items:
+        text = assert_one_line(str(item), label)
+        cleaned.append(text)
+    return cleaned
+
+
+def validate_checklist(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, dict):
+        raise DebateError(
+            "Preflight payload needs a checklist object keyed by item id. "
+            "Run: debate.py preflight --checklist"
+        )
+    known = {item["id"]: item for item in CHECKLIST_ITEMS}
+    unknown = sorted(set(raw) - set(known))
+    if unknown:
+        raise DebateError("Unknown checklist id(s): " + ", ".join(unknown) + ".")
+    missing = [item_id for item_id in checklist_ids() if item_id not in raw]
+    if missing:
+        raise DebateError(
+            "Checklist is missing: "
+            + ", ".join(missing)
+            + ". Every standing rule must be marked. "
+            "Run: debate.py preflight --checklist"
+        )
+    rows = []
+    unaddressed = []
+    for item in CHECKLIST_ITEMS:
+        entry = raw[item["id"]]
+        if isinstance(entry, str):
+            entry = {"applies": True, "addressed": entry}
+        if not isinstance(entry, dict):
+            raise DebateError(
+                f"Checklist item {item['id']} must be an object "
+                "with applies and addressed fields."
+            )
+        if "applies" not in entry:
+            applies = True
+        else:
+            applies = bool(entry.get("applies"))
+        addressed_raw = str(entry.get("addressed") or "").strip()
+        if applies and not addressed_raw:
+            unaddressed.append(item["id"])
+            continue
+        addressed = (
+            assert_one_line(addressed_raw, f"{item['id']} addressed")
+            if addressed_raw
+            else ""
+        )
+        rows.append(
+            {
+                "id": item["id"],
+                "title": item["title"],
+                "applies": applies,
+                "addressed": addressed,
+            }
+        )
+    if unaddressed:
+        raise DebateError(
+            "Applicable checklist item(s) were not addressed: "
+            + ", ".join(unaddressed)
+            + "."
+        )
+    return rows
+
+
+def _short_title(plan: str) -> str:
+    words = plan.split()
+    title = " ".join(words[:12])
+    if len(words) > 12:
+        title = title.rstrip(".,;:") + "…"
+    return title
+
+
+def validate_preflight_verdict(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise DebateError("Preflight payload needs a verdict object.")
+    landed = canonical_preflight_landing(str(raw.get("landed") or ""))
+    reason = assert_one_line(str(raw.get("reason") or ""), "Verdict reason")
+    top_risk = assert_one_line(str(raw.get("top_risk") or ""), "Top risk")
+    would_change = assert_one_line(
+        str(raw.get("would_change_my_mind") or raw.get("would_change") or ""),
+        "What would change my mind",
+    )
+    changes = _as_line_list(raw.get("changes"), "Changes")
+    questions = _as_line_list(
+        raw.get("questions") or raw.get("questions_for_owner"),
+        "Questions for the owner",
+    )
+    if landed == "go-with-changes" and not changes:
+        raise DebateError("go-with-changes needs at least one concrete change.")
+    sharpened_raw = str(raw.get("sharpened_plan") or "").strip()
+    return {
+        "landed": landed,
+        "reason": reason,
+        "top_risk": top_risk,
+        "changes": changes,
+        "questions": questions,
+        "would_change_my_mind": would_change,
+        "sharpened_plan": sharpened_raw,
+    }
+
+
+def compose_sharpened_plan(plan: str, verdict: dict[str, Any]) -> str:
+    existing = str(verdict.get("sharpened_plan") or "").strip()
+    if existing:
+        return assert_speech(existing, "Sharpened plan", limit=SHARPENED_WORD_LIMIT)
+    landed = verdict["landed"]
+    changes = verdict.get("changes") or []
+    if landed == "scrap":
+        draft = "Do not proceed. " + (verdict.get("reason") or "")
+    elif landed == "hold":
+        draft = "Hold this plan. " + (verdict.get("reason") or "")
+        if changes:
+            draft += " Before moving: " + "; ".join(changes) + "."
+    elif changes:
+        draft = plan.rstrip() + " Changes: " + "; ".join(changes) + "."
+    else:
+        draft = plan
+    return assert_speech(draft, "Sharpened plan", limit=SHARPENED_WORD_LIMIT)
+
+
+def read_plan_file(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise DebateError(f"Could not read plan file {path}: {exc}") from exc
+    return assert_speech(text, "Plan", limit=PLAN_WORD_LIMIT)
+
+
+def set_seat_speech(
+    text: str,
+    seat: str,
+    kind: str,
+    speaker: str | None = None,
+) -> dict[str, Any]:
+    if seat not in SEATS:
+        raise DebateError("Seat must be optimist or realist.")
+    label = f"{seat} {kind}"
+    cleaned = assert_speech(text, label)
+    who = (speaker or seat.capitalize()).strip()
+    if not who:
+        raise DebateError("Speaker cannot be empty.")
+    return {"speaker": who, "text": cleaned, "words": word_count(cleaned)}
+
+
+def maybe_consultant_second_opinion(
+    record: dict[str, Any],
+    *,
+    enabled: bool = False,
+) -> dict[str, Any] | None:
+    """Optional consultant realist second opinion. Off by default. Stays offline.
+
+    Never sends private content. A local adapter must be configured before
+    anything would be considered, and even then the record is scanned first.
+    This build does not ship an adapter, so enabling the flag raises unless
+    PREFLIGHT_CONSULTANT_ADAPTER is set; no network call is made here.
+    """
+    if not enabled:
+        return None
+    blob = json.dumps(record, ensure_ascii=False)
+    assert_shareable(blob, "Preflight record for a consultant")
+    adapter = os.environ.get("PREFLIGHT_CONSULTANT_ADAPTER", "").strip()
+    if not adapter:
+        raise DebateError(
+            "Consultant second opinion is off by default and stays offline. "
+            "No consultant call was made and nothing was sent. To use it, set "
+            "PREFLIGHT_CONSULTANT_ADAPTER to a local adapter and never "
+            "include private content."
+        )
+    raise DebateError(
+        "Consultant second opinion adapter is not loaded in this offline build. "
+        "Nothing was sent."
+    )
+
+
+def new_preflight_record(
+    plan: str,
+    *,
+    title: str | None = None,
+    plan_source: str | None = None,
+    when: datetime | None = None,
+    preflight_id: str | None = None,
+) -> dict[str, Any]:
+    cleaned_plan = assert_speech(plan, "Plan", limit=PLAN_WORD_LIMIT)
+    created = when or now()
+    heading = (title or "").strip() or _short_title(cleaned_plan)
+    return {
+        "id": preflight_id or _next_preflight_id(created),
+        "kind": "preflight",
+        "version": VERSION,
+        "created": created.isoformat(timespec="seconds"),
+        "timezone": "America/Chicago",
+        "mode": "preflight",
+        "status": "open",
+        "title": heading,
+        "plan": cleaned_plan,
+        "plan_words": word_count(cleaned_plan),
+        "plan_source": plan_source,
+        "participants": ["Optimist", "Realist"],
+        "optimist": None,
+        "realist": None,
+        "rebuttals": {"optimist": None, "realist": None},
+        "checklist": [],
+        "verdict": None,
+        "consultant_second_opinion": None,
+        "notes": (
+            "A preflight verdict is an opinion, not policy, unless the owner signs off. "
+            "The owner's rules outrank anything the seats decide."
+        ),
+    }
+
+
+def _format_when(created: str) -> str:
+    try:
+        when = datetime.fromisoformat(created)
+        return when.strftime("%Y-%m-%d %-I:%M %p") + " America/Chicago"
+    except ValueError:
+        return created or "unknown date"
+
+
+def _speech_block(heading: str, entry: Any, seat: str) -> list[str]:
+    lines = [f"## {heading}"]
+    if entry:
+        suffix = f" ({entry.get('words')} words)" if entry.get("words") else ""
+        lines.append(f"*{entry.get('speaker') or seat}{suffix}*")
+        lines.append("")
+        lines.append(entry.get("text") or "")
+    else:
+        lines.append("_not yet written_")
+    lines.append("")
+    return lines
+
+
+def apply_preflight_payload(record: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    record["optimist"] = set_seat_speech(
+        str(payload.get("optimist") or ""),
+        "optimist",
+        "case",
+        speaker="Optimist",
+    )
+    record["realist"] = set_seat_speech(
+        str(payload.get("realist") or ""),
+        "realist",
+        "case",
+        speaker="Realist",
+    )
+    rebuttals = payload.get("rebuttals") or {}
+    if not isinstance(rebuttals, dict):
+        raise DebateError("rebuttals must be an object with optimist and realist text.")
+    missing = [seat for seat in SEATS if not rebuttals.get(seat)]
+    if missing:
+        raise DebateError(
+            "Preflight is incomplete. Still need: "
+            + ", ".join(f"{seat} rebuttal" for seat in missing)
+            + "."
+        )
+    record["rebuttals"] = {
+        "optimist": set_seat_speech(
+            str(rebuttals.get("optimist") or ""),
+            "optimist",
+            "rebuttal",
+            speaker="Optimist",
+        ),
+        "realist": set_seat_speech(
+            str(rebuttals.get("realist") or ""),
+            "realist",
+            "rebuttal",
+            speaker="Realist",
+        ),
+    }
+    record["checklist"] = validate_checklist(payload.get("checklist"))
+    verdict = validate_preflight_verdict(payload.get("verdict"))
+    verdict["sharpened_plan"] = compose_sharpened_plan(record["plan"], verdict)
+    record["verdict"] = verdict
+    return record
+
+
+def render_preflight_summary(record: dict[str, Any]) -> str:
+    verdict = record.get("verdict") or {}
+    landed = verdict.get("landed") or "unfinished"
+    reason = (verdict.get("reason") or "").strip()
+    top_risk = (verdict.get("top_risk") or "").strip() or "not yet written"
+    changes = verdict.get("changes") or []
+    questions = verdict.get("questions") or []
+    change_text = "; ".join(changes) if changes else "none"
+    question_text = "; ".join(questions) if questions else "none"
+    lines = [
+        f"Verdict: {landed}" + (f" — {reason}" if reason else ""),
+        f"Top risk: {top_risk}",
+        f"Changes: {change_text}",
+        f"Questions for the owner: {question_text}",
+    ]
+    changer = (verdict.get("would_change_my_mind") or "").strip()
+    if changer:
+        lines.append(f"What would change my mind: {changer}")
+    sharpened = (verdict.get("sharpened_plan") or "").strip()
+    if sharpened and len(lines) < PREFLIGHT_SUMMARY_MAX_LINES:
+        lines.append(f"Sharpened plan: {sharpened}")
+    if not (
+        PREFLIGHT_SUMMARY_MIN_LINES
+        <= len(lines)
+        <= PREFLIGHT_SUMMARY_MAX_LINES
+    ):
+        raise DebateError(
+            "Preflight summary must be "
+            f"{PREFLIGHT_SUMMARY_MIN_LINES}-{PREFLIGHT_SUMMARY_MAX_LINES} lines."
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _checklist_lines(checklist: list[dict[str, Any]]) -> list[str]:
+    lines = ["## Checklist", ""]
+    if not checklist:
+        lines.append("_not yet filled_")
+        lines.append("")
+        return lines
+    for row in checklist:
+        flag = "applies" if row.get("applies") else "does not apply"
+        addressed = row.get("addressed") or "—"
+        lines.append(f"- {row.get('id')} ({flag}): {addressed}")
+    lines.append("")
+    return lines
+
+
+def render_preflight_show(record: dict[str, Any]) -> str:
+    lines = [
+        f"# Preflight {record.get('id')} — {record.get('title')}",
+        "",
+        f"- Date: {_format_when(str(record.get('created') or ''))}",
+        f"- Status: {record.get('status')}",
+        f"- Participants: {', '.join(record.get('participants') or [])}",
+        "",
+        "## Plan",
+        "",
+        record.get("plan") or "_not yet written_",
+        "",
+    ]
+    for seat in SEATS:
+        lines.extend(_speech_block(f"{seat.capitalize()} case", record.get(seat), seat))
+    for seat in SEATS:
+        entry = (record.get("rebuttals") or {}).get(seat)
+        lines.extend(_speech_block(f"{seat.capitalize()} rebuttal", entry, seat))
+    lines.extend(_checklist_lines(list(record.get("checklist") or [])))
+    lines.append("## Pasteable summary")
+    lines.append("")
+    if record.get("verdict"):
+        lines.append(render_preflight_summary(record).rstrip())
+    else:
+        lines.append("_no verdict yet_")
+    lines.append("")
+    lines.append(
+        "This result is an opinion, not policy, unless the owner signs off. "
+        "The owner's rules outrank anything the seats decide."
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def save_preflight(record: dict[str, Any]) -> tuple[Path, Path]:
+    if not record.get("id"):
+        raise DebateError("Record is missing an id.")
+    blob = json.dumps(record, indent=2, ensure_ascii=False)
+    assert_shareable(blob, "Preflight record")
+    json_path, md_path = _preflight_paths(record["id"])
+    _write_json(json_path, record)
+    md_path.write_text(render_preflight_summary(record), encoding="utf-8")
+    return json_path, md_path
+
+
+def resolve_preflight_plan(
+    payload: dict[str, Any],
+    plan_text: str | None,
+    plan_source: str | None,
+) -> tuple[str, str | None]:
+    plan = (plan_text or "").strip() or str(payload.get("plan") or "").strip()
+    if not plan:
+        raise DebateError("Preflight needs a plan (--plan or a plan field in the payload).")
+    source = plan_source
+    if source is None and not plan_text and payload.get("plan"):
+        source = "payload"
+    return plan, source
+
+
+def run_preflight(
+    payload: dict[str, Any],
+    *,
+    plan_text: str | None = None,
+    plan_source: str | None = None,
+    consultant: bool = False,
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise DebateError("Preflight payload must be a JSON object.")
+    plan, source = resolve_preflight_plan(payload, plan_text, plan_source)
+    record = new_preflight_record(
+        plan,
+        title=str(payload.get("title") or "").strip() or None,
+        plan_source=source,
+    )
+    apply_preflight_payload(record, payload)
+    record["consultant_second_opinion"] = maybe_consultant_second_opinion(
+        record, enabled=consultant
+    )
+    record["status"] = "complete"
+    save_preflight(record)
+    return record
+
+
+def format_preflight_log(records: list[dict[str, Any]] | None = None) -> str:
+    rows = records if records is not None else list_preflight_records()
     if not rows:
-        return "No debates recorded yet."
-    lines = ["id  date  mode  status  topic  landed", "--  ----  ----  ------  -----  ------"]
+        return "No preflight records yet."
+    lines = [
+        "id  date  verdict  title",
+        "--  ----  -------  -----",
+    ]
     for row in rows:
-        landed = ", ".join(
-            f"{v.get('participant')}: {v.get('landed')}" for v in row.get("verdicts") or []
-        ) or "—"
+        verdict = (row.get("verdict") or {}).get("landed") or "—"
         created = row.get("created") or ""
         date = created[:10] if created else "—"
         lines.append(
-            f"{row.get('id')}  {date}  {row.get('mode')}  "
-            f"{row.get('status')}  {row.get('topic')}  {landed}"
+            f"{row.get('id')}  {date}  {verdict}  {row.get('title')}"
         )
+    return "\n".join(lines)
+
+
+# ---- formatting / CLI -------------------------------------------------------
+def format_log(records: list[dict[str, Any]] | None = None) -> str:
+    provided = records is not None
+    rows = records if provided else list_records()
+    preflights = [] if provided else list_preflight_records()
+    if not rows and not preflights:
+        return "No debates recorded yet."
+    if rows:
+        lines = ["id  date  mode  status  topic  landed", "--  ----  ----  ------  -----  ------"]
+        for row in rows:
+            landed = ", ".join(
+                f"{v.get('participant')}: {v.get('landed')}" for v in row.get("verdicts") or []
+            ) or "—"
+            created = row.get("created") or ""
+            date = created[:10] if created else "—"
+            lines.append(
+                f"{row.get('id')}  {date}  {row.get('mode')}  "
+                f"{row.get('status')}  {row.get('topic')}  {landed}"
+            )
+    else:
+        lines = ["No debates recorded yet."]
+    if preflights:
+        lines.append("")
+        lines.append("Preflight plans")
+        lines.extend(format_preflight_log(preflights).splitlines())
     return "\n".join(lines)
 
 
@@ -623,7 +1221,14 @@ def cmd_log() -> int:
 
 
 def cmd_show(debate_id: str) -> int:
-    return _print(render_transcript(load_debate(debate_id)))
+    try:
+        return _print(render_transcript(load_debate(debate_id)))
+    except DebateError:
+        pass
+    try:
+        return _print(render_preflight_show(load_preflight(debate_id)))
+    except DebateError:
+        raise DebateError(f"No debate or preflight record named {debate_id}.")
 
 
 def cmd_fill(debate_id: str, payload_path: Path) -> int:
@@ -634,6 +1239,36 @@ def cmd_fill(debate_id: str, payload_path: Path) -> int:
     save_debate(record)
     status = record["status"]
     return _print(f"Updated {record['id']} ({status}).")
+
+
+def cmd_preflight(
+    plan_path: Path | None,
+    payload_path: Path | None,
+    checklist_only: bool,
+    consultant: bool,
+) -> int:
+    if checklist_only:
+        return _print(format_checklist())
+    if payload_path is None:
+        raise DebateError(
+            "preflight needs --from payload.json (or pass --checklist)."
+        )
+    plan_text = read_plan_file(plan_path) if plan_path is not None else None
+    plan_source = str(plan_path) if plan_path is not None else None
+    record = run_preflight(
+        load_payload(payload_path),
+        plan_text=plan_text,
+        plan_source=plan_source,
+        consultant=consultant,
+    )
+    json_path, md_path = _preflight_paths(record["id"])
+    landed = (record.get("verdict") or {}).get("landed") or "—"
+    return _print(
+        f"Preflight {record['id']} is complete ({landed}).\n"
+        f"JSON: {json_path}\n"
+        f"Summary: {md_path}\n\n"
+        + render_preflight_summary(record).rstrip()
+    )
 
 
 def cmd_practice(topic_id: str | None, payload_path: Path) -> int:
@@ -653,7 +1288,7 @@ def cmd_practice(topic_id: str | None, payload_path: Path) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Debate Loops: one topic, both sides, then a verdict."
+        description="Debate Loops: topic debates, plus plan preflight."
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -683,8 +1318,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON file with openings, rebuttals, steelmans, and a verdict.",
     )
 
+    preflight = sub.add_parser(
+        "preflight",
+        help=(
+            "Argue a plan in Optimist vs Realist seats before it reaches the owner, "
+            "or print the realist checklist."
+        ),
+    )
+    preflight.add_argument(
+        "--plan",
+        dest="plan_path",
+        help="Path to the plan (markdown or text). Optional if the payload has a plan field.",
+    )
+    preflight.add_argument(
+        "--from",
+        dest="payload",
+        help="JSON file with optimist and realist cases, rebuttals, checklist, and a verdict.",
+    )
+    preflight.add_argument(
+        "--checklist",
+        action="store_true",
+        dest="checklist",
+        help="Print the realist checklist and exit.",
+    )
+    preflight.add_argument(
+        "--consultant",
+        action="store_true",
+        dest="consultant",
+        help=(
+            "Optional consultant realist second opinion. Off by default, stays offline, "
+            "and never sends private content."
+        ),
+    )
+
     sub.add_parser("log", help="List past debates.")
-    show = sub.add_parser("show", help="Print a debate transcript.")
+    show = sub.add_parser("show", help="Print a debate or preflight record.")
     show.add_argument("debate_id")
     return parser
 
@@ -703,6 +1371,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return cmd_fill(args.debate_id, Path(args.payload))
         if args.command == "practice":
             return cmd_practice(args.topic_id, Path(args.payload))
+        if args.command == "preflight":
+            plan_path = Path(args.plan_path) if args.plan_path else None
+            payload_path = Path(args.payload) if args.payload else None
+            return cmd_preflight(plan_path, payload_path, args.checklist, args.consultant)
         if args.command == "log":
             return cmd_log()
         if args.command == "show":
