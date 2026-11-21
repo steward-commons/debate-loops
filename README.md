@@ -125,3 +125,12 @@ A payload file for `preflight` looks like:
 ## License
 
 MIT. See `LICENSE`.
+
+## Who opens (2026-11-21)
+
+Each new debate picks its opening side at random, so `for` doesn't always get the first word.
+The record stores it as `"opens": "for" | "against"`, and the transcript shows `- Opens: ...`
+and lists the opener first in every section. Older records with no `opens` keep for-first.
+`start --opens against` picks the opener yourself; `start --seed N` makes the draw repeatable
+(tests or a rematch). In code, pass `rng=random.Random(N)` to `start_debate`, `new_record`, or
+`run_practice`; a practice payload may also set `"opens"`.

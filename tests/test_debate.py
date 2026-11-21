@@ -166,6 +166,47 @@ class DebateTest(unittest.TestCase):
             debate.run_practice("topic-05", incomplete)
         self.assertIn("incomplete", str(ctx.exception).lower())
 
+    # --- who opens (2026-11-21) ---------------------------------------------
+    def test_opening_side_is_random_but_seedable(self):
+        seen = {debate.choose_opener(random.Random(n)) for n in range(40)}
+        self.assertEqual(seen, set(debate.SIDES))
+        a = debate.choose_opener(random.Random(7))
+        self.assertEqual(a, debate.choose_opener(random.Random(7)))
+
+    def test_record_stores_opener_and_transcript_puts_it_first(self):
+        rec = debate.start_debate("topic-03", opens="against")
+        self.assertEqual(debate.load_debate(rec["id"])["opens"], "against")
+        text = debate.render_transcript(rec)
+        self.assertIn("- Opens: against", text)
+        self.assertLess(text.index("## Opening — against"), text.index("## Opening — for"))
+        self.assertLess(text.index("## Rebuttal — against"), text.index("## Rebuttal — for"))
+
+    def test_seeded_start_matches_choose_opener(self):
+        expected = debate.choose_opener(random.Random(3))
+        rec = debate.start_debate("topic-02", rng=random.Random(3))
+        self.assertEqual(rec["opens"], expected)
+
+    def test_bad_opener_is_rejected(self):
+        with self.assertRaises(debate.DebateError):
+            debate.start_debate("topic-02", opens="sideways")
+
+    def test_old_record_without_opener_stays_for_first(self):
+        self.assertEqual(debate.side_order({}), ("for", "against"))
+        self.assertEqual(debate.side_order({"opens": "nonsense"}), ("for", "against"))
+
+    def test_practice_payload_can_name_opener(self):
+        data = payload(); data["opens"] = "against"
+        rec = debate.run_practice("topic-04", data)
+        self.assertEqual(rec["opens"], "against")
+
+    def test_cli_start_seed_and_opens(self):
+        self.assertEqual(debate.main(["start", "topic-02", "--opens", "against"]), 0)
+        self.assertEqual(debate.main(["start", "topic-03", "--seed", "5"]), 0)
+        opens = sorted(r.get("opens") for r in debate.list_records())
+        self.assertEqual(len(opens), 2)
+        self.assertIn("against", opens)
+        self.assertTrue(set(opens) <= set(debate.SIDES))
+
     # --- CLI -----------------------------------------------------------------
     def test_cli_topics_pick_start_log_and_practice(self):
         self.assertEqual(debate.main(["topics"]), 0)

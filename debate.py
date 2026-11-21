@@ -348,6 +348,22 @@ def pick_topic(
     return chooser.choice(eligible)
 
 
+def choose_opener(rng: random.Random | None = None) -> str:
+    """Which side opens this debate (2026-11-21): random, so "for" doesn't
+    always get the first word. Pass a seeded random.Random for tests or a rematch."""
+    chooser = rng if rng is not None else random.Random()
+    return chooser.choice(SIDES)
+
+
+def side_order(record: dict[str, Any]) -> tuple[str, str]:
+    """Speaking order for a record. Older records with no 'opens' keep for-first."""
+    opener = record.get("opens")
+    if opener not in SIDES:
+        return SIDES
+    other = SIDES[1] if opener == SIDES[0] else SIDES[0]
+    return (opener, other)
+
+
 def _empty_sides() -> dict[str, Any]:
     return {"for": None, "against": None}
 
@@ -368,9 +384,14 @@ def new_record(
     participant: str = "Assistant",
     when: datetime | None = None,
     debate_id: str | None = None,
+    opens: str | None = None,
+    rng: random.Random | None = None,
 ) -> dict[str, Any]:
     if mode not in MODES:
         raise DebateError("Mode must be moot or practice.")
+    if opens is not None and opens not in SIDES:
+        raise DebateError("opens must be for or against.")
+    opener = opens or choose_opener(rng)
     created = when or now()
     name = (participant or "").strip() or "Assistant"
     return {
@@ -383,6 +404,7 @@ def new_record(
         "topic_id": topic["id"],
         "topic": topic["title"],
         "category": topic["category"],
+        "opens": opener,
         "participants": [name],
         "openings": _empty_sides(),
         "rebuttals": _empty_sides(),
@@ -505,6 +527,7 @@ def render_transcript(record: dict[str, Any]) -> str:
         f"- Topic id: {record.get('topic_id')}",
         f"- Category: {record.get('category')}",
         f"- Status: {record.get('status')}",
+        f"- Opens: {side_order(record)[0]}",
         f"- Participants: {', '.join(record.get('participants') or [])}",
         "",
     ]
@@ -513,7 +536,7 @@ def render_transcript(record: dict[str, Any]) -> str:
         ("rebuttals", "Rebuttal"),
         ("steelmans", "Steelman"),
     ):
-        for side in SIDES:
+        for side in side_order(record):
             entry = (record.get(section) or {}).get(side)
             title = f"## {heading} — {side}"
             if section == "steelmans":
@@ -567,8 +590,11 @@ def start_debate(
     *,
     mode: str = "moot",
     participant: str = "Assistant",
+    opens: str | None = None,
+    rng: random.Random | None = None,
 ) -> dict[str, Any]:
-    record = new_record(get_topic(topic_id), mode=mode, participant=participant)
+    record = new_record(get_topic(topic_id), mode=mode, participant=participant,
+                        opens=opens, rng=rng)
     save_debate(record)
     return record
 
@@ -616,6 +642,7 @@ def run_practice(
     payload: dict[str, Any],
     *,
     participant: str = "Assistant",
+    rng: random.Random | None = None,
 ) -> dict[str, Any]:
     tid = topic_id or payload.get("topic_id")
     if not tid:
@@ -624,6 +651,8 @@ def run_practice(
         get_topic(str(tid)),
         mode="practice",
         participant=payload.get("participant") or participant,
+        opens=payload.get("opens") if payload.get("opens") in SIDES else None,
+        rng=rng,
     )
     apply_payload(record, payload)
     complete(record)
@@ -1206,11 +1235,12 @@ def cmd_pick(seed: int | None) -> int:
     return _print(format_pick(pick_topic(rng=rng)))
 
 
-def cmd_start(topic_id: str, mode: str) -> int:
-    record = start_debate(topic_id, mode=mode)
+def cmd_start(topic_id: str, mode: str, seed: int | None = None, opens: str | None = None) -> int:
+    rng = random.Random(seed) if seed is not None else None
+    record = start_debate(topic_id, mode=mode, opens=opens, rng=rng)
     json_path, md_path = _record_paths(record["id"])
     return _print(
-        f"Started {record['id']} ({mode}) on {record['topic']}.\n"
+        f"Started {record['id']} ({mode}) on {record['topic']}. {record['opens']} opens.\n"
         f"JSON: {json_path}\n"
         f"Transcript: {md_path}"
     )
@@ -1301,6 +1331,8 @@ def build_parser() -> argparse.ArgumentParser:
     start = sub.add_parser("start", help="Create an open debate record.")
     start.add_argument("topic_id", help="Topic id from the bank.")
     start.add_argument("--mode", choices=MODES, default="moot")
+    start.add_argument("--seed", type=int, help="Optional RNG seed for which side opens (tests or a rematch).")
+    start.add_argument("--opens", choices=SIDES, help="Pick the opening side yourself instead of at random.")
 
     fill = sub.add_parser("fill", help="Add openings, rebuttals, steelmans, or a verdict from a JSON file.")
     fill.add_argument("debate_id")
@@ -1366,7 +1398,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "pick":
             return cmd_pick(args.seed)
         if args.command == "start":
-            return cmd_start(args.topic_id, args.mode)
+            return cmd_start(args.topic_id, args.mode, seed=args.seed, opens=args.opens)
         if args.command == "fill":
             return cmd_fill(args.debate_id, Path(args.payload))
         if args.command == "practice":

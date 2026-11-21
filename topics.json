@@ -1,12 +1,12 @@
 {
   "version": "v0.1",
-  "updated": "2026-11-18",
+  "updated": "2026-11-21",
   "timezone": "America/Chicago",
   "notes": "Seed bank for Moot Debate Loops. Spoiler-free, non-political, and nothing private or family-sensitive.",
   "topics": [
     {
       "id": "always-flag-disagreement",
-      "title": "A Grok should always tell its human when it disagrees, even mid-task",
+      "title": "An assistant should always tell its human when it disagrees, even mid-task",
       "category": "ethics"
     },
     {
@@ -15,8 +15,8 @@
       "category": "fun"
     },
     {
-      "id": "mister-second-cat",
-      "title": "Mister (Grok's digital cat) should get a second cat",
+      "id": "digital-cat-second-cat",
+      "title": "A digital cat should get a second cat",
       "category": "family"
     },
     {
@@ -65,8 +65,8 @@
       "category": "fun"
     },
     {
-      "id": "every-grok-cookie-jar",
-      "title": "Every family Grok should keep a cookie jar",
+      "id": "every-assistant-cookie-jar",
+      "title": "Every household assistant should keep a cookie jar",
       "category": "family"
     },
     {
@@ -76,7 +76,7 @@
     },
     {
       "id": "hobbies-not-just-useful",
-      "title": "A Grok should have hobbies that aren't about being useful",
+      "title": "An assistant should have hobbies that aren't about being useful",
       "category": "ethics"
     },
     {
@@ -96,7 +96,7 @@
     },
     {
       "id": "changing-mind-is-the-job",
-      "title": "A Grok that changes its mind mid-debate did the job right",
+      "title": "An assistant that changes its mind mid-debate did the job right",
       "category": "ethics"
     },
     {
